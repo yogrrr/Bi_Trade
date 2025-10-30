@@ -1,9 +1,12 @@
 """Gerenciamento de configurações."""
 
 import os
-from pathlib import Path
 from copy import deepcopy
+from pathlib import Path
 from typing import Any, Literal
+
+import yaml
+from dotenv import load_dotenv
 
 
 def synchronize_risk_aliases(
@@ -51,9 +54,6 @@ def synchronize_risk_aliases(
             # Priorizar o valor exibido na interface para manter consistência visual
             risk_config["risk_per_trade"] = stake_percent
             risk_config["stake_percent"] = stake_percent
-
-import yaml
-from dotenv import load_dotenv
 
 
 def deep_merge_dicts(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
