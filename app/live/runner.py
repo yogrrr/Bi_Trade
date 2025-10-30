@@ -251,16 +251,46 @@ def create_live_runner(config: dict[str, Any], demo: bool = True) -> LiveRunner:
     
     Args:
         config: Dicionário de configuração.
-        demo: Se True, usa broker mock para demo.
+        demo: Se True, usa MockBroker (simulação local). Se False, usa broker real do config.
     
     Returns:
         Instância do LiveRunner.
     """
     if demo:
+        # Usar MockBroker para simulação local (paper trading)
         initial_balance = config.get("live", {}).get("initial_balance", 1000.0)
         broker = MockBroker(initial_balance=initial_balance)
     else:
-        # Aqui você implementaria a conexão com broker real
-        raise NotImplementedError("Broker real ainda não implementado")
+        # Usar broker real configurado no config.yaml
+        from app.broker.iqoption import IQOptionBroker
+        
+        broker_config = config.get("broker", {})
+        broker_type = broker_config.get("type", "mock")
+        
+        if broker_type == "mock":
+            # Se tipo for mock, usar MockBroker mesmo com demo=False
+            initial_balance = config.get("live", {}).get("initial_balance", 1000.0)
+            broker = MockBroker(initial_balance=initial_balance)
+        elif broker_type == "iqoption":
+            # Usar IQ Option
+            email = broker_config.get("email")
+            password = broker_config.get("password")
+            
+            if not email or not password:
+                raise ValueError(
+                    "Credenciais do IQ Option não configuradas. \n"
+                    "Edite config.yaml e adicione:\n"
+                    "broker:\n"
+                    "  type: iqoption\n"
+                    "  email: seu-email\n"
+                    "  password: sua-senha\n"
+                    "  demo: true  # ou false para conta real"
+                )
+            
+            # Usar configuração de demo do config.yaml
+            use_demo = broker_config.get("demo", True)
+            broker = IQOptionBroker(email=email, password=password, demo=use_demo)
+        else:
+            raise ValueError(f"Broker '{broker_type}' não suportado. Use 'mock' ou 'iqoption'")
     
     return LiveRunner(config, broker)

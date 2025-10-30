@@ -1,14 +1,18 @@
 """Integração com IQ Option para trading real."""
 
 import time
+import logging
 from datetime import datetime
 from typing import Optional
 
-from app.broker.base import BaseBroker, Trade
+from app.broker.base import BrokerInterface, Trade
 
 
-class IQOptionBroker(BaseBroker):
-    """Broker para IQ Option (requer biblioteca iqoptionapi)."""
+logger = logging.getLogger(__name__)
+
+
+class IQOptionBroker(BrokerInterface):
+    """Broker para IQ Option real."""
     
     def __init__(self, email: str, password: str, demo: bool = True):
         """Inicializa conexão com IQ Option.
@@ -22,211 +26,258 @@ class IQOptionBroker(BaseBroker):
         self.password = password
         self.demo = demo
         self.api = None
-        self.connected = False
+        self.trades: dict[str, Trade] = {}
         
-        print(f"Inicializando IQ Option Broker ({'DEMO' if demo else 'REAL'})")
+        # Conectar
+        self._connect()
     
-    def connect(self) -> bool:
-        """Conecta ao broker.
-        
-        Returns:
-            True se conectou com sucesso.
-        """
+    def _connect(self) -> None:
+        """Conecta ao IQ Option."""
         try:
-            # Importar biblioteca (precisa ser instalada separadamente)
+            # Importar biblioteca
             try:
                 from iqoptionapi.stable_api import IQ_Option
             except ImportError:
                 raise ImportError(
                     "Biblioteca iqoptionapi não encontrada. Instale com:\n"
-                    "pip install iqoptionapi"
+                    "pip install git+https://github.com/Lu-Yi-Hsun/iqoptionapi.git"
                 )
             
-            print(f"Conectando ao IQ Option como {self.email}...")
+            logger.info(f"Conectando ao IQ Option (email: {self.email}, demo: {self.demo})...")
             
             self.api = IQ_Option(self.email, self.password)
             check, reason = self.api.connect()
             
             if not check:
-                print(f"✗ Falha na conexão: {reason}")
-                return False
+                raise ConnectionError(f"Falha ao conectar com IQ Option: {reason}")
             
             # Mudar para conta demo/real
             if self.demo:
                 self.api.change_balance("PRACTICE")
-                print("✓ Conectado à conta DEMO")
+                logger.info("Conectado à conta DEMO")
             else:
                 self.api.change_balance("REAL")
-                print("⚠️  Conectado à conta REAL")
-            
-            self.connected = True
-            return True
+                logger.warning("⚠️  Conectado à conta REAL - USE COM CUIDADO!")
             
         except Exception as e:
-            print(f"✗ Erro ao conectar: {e}")
-            return False
+            logger.error(f"Erro ao conectar: {e}")
+            raise
     
-    def disconnect(self) -> None:
-        """Desconecta do broker."""
-        if self.api:
-            print("Desconectando do IQ Option...")
-            self.connected = False
-            self.api = None
+    def _ensure_connected(self) -> None:
+        """Garante que está conectado, reconecta se necessário."""
+        if self.api is None or not self.api.check_connect():
+            logger.warning("Conexão perdida, reconectando...")
+            self._connect()
     
-    def place_order(
+    def get_balance(self) -> float:
+        """Retorna o saldo atual da conta."""
+        self._ensure_connected()
+        
+        try:
+            balance = self.api.get_balance()
+            return float(balance)
+        except Exception as e:
+            logger.error(f"Erro ao obter saldo: {e}")
+            return 0.0
+    
+    def get_payout(self, symbol: str, expiry: int) -> float:
+        """Obtém o payout atual.
+        
+        Args:
+            symbol: Par de moedas (ex: "EURUSD").
+            expiry: Expiração em segundos.
+        
+        Returns:
+            Payout em decimal (ex: 0.85 para 85%).
+        """
+        self._ensure_connected()
+        
+        try:
+            # Obter todos os payouts
+            all_profit = self.api.get_all_profit()
+            
+            # Determinar tipo (turbo para < 5min, binary para >= 5min)
+            option_type = "turbo" if expiry < 300 else "binary"
+            
+            # Obter payout do símbolo
+            if symbol in all_profit and option_type in all_profit[symbol]:
+                payout_percent = all_profit[symbol][option_type]
+                return payout_percent / 100.0  # Converter de % para decimal
+            
+            # Fallback: payout padrão
+            logger.warning(f"Payout não encontrado para {symbol} ({option_type}), usando 80%")
+            return 0.80
+            
+        except Exception as e:
+            logger.error(f"Erro ao obter payout: {e}")
+            return 0.80
+    
+    def get_current_price(self, symbol: str) -> float:
+        """Obtém o preço atual.
+        
+        Args:
+            symbol: Par de moedas (ex: "EURUSD").
+        
+        Returns:
+            Preço atual.
+        """
+        self._ensure_connected()
+        
+        try:
+            # Obter candle mais recente
+            candles = self.api.get_candles(symbol, 60, 1, time.time())
+            
+            if candles and len(candles) > 0:
+                return float(candles[-1]["close"])
+            
+            raise ValueError(f"Não foi possível obter preço para {symbol}")
+            
+        except Exception as e:
+            logger.error(f"Erro ao obter preço: {e}")
+            raise
+    
+    def place_trade(
         self,
         symbol: str,
         direction: str,
-        amount: float,
+        stake: float,
         expiry: int,
-    ) -> Optional[Trade]:
-        """Coloca uma ordem no broker.
+    ) -> Trade:
+        """Abre um trade de opção binária.
         
         Args:
-            symbol: Par de moedas (ex: EURUSD).
+            symbol: Par de moedas (ex: "EURUSD").
             direction: "CALL" ou "PUT".
-            amount: Valor a investir.
-            expiry: Tempo de expiração em segundos.
+            stake: Valor a investir.
+            expiry: Expiração em segundos.
         
         Returns:
-            Trade com informações da ordem, ou None se falhar.
+            Objeto Trade com informações do trade.
         """
-        if not self.connected or not self.api:
-            print("✗ Não conectado ao broker")
-            return None
+        self._ensure_connected()
         
         try:
-            # Converter símbolo para formato IQ Option
-            # EURUSD -> EURUSD-OTC ou EURUSD
-            iq_symbol = symbol
+            # Converter direção para formato IQ Option
+            action = "call" if direction.upper() == "CALL" else "put"
             
-            # Converter direção
-            iq_direction = "call" if direction == "CALL" else "put"
-            
-            # Converter expiração (segundos -> minutos)
+            # Converter expiração de segundos para minutos
             expiry_minutes = max(1, expiry // 60)
             
-            print(f"Colocando ordem: {iq_symbol} {iq_direction.upper()} ${amount} {expiry_minutes}min")
+            # Obter payout e preço antes de abrir
+            payout = self.get_payout(symbol, expiry)
+            entry_price = self.get_current_price(symbol)
             
-            # Obter preço atual
-            price = self.api.get_realtime_candles(iq_symbol, 60)
-            if not price:
-                print("✗ Não foi possível obter preço atual")
-                return None
+            # Abrir trade
+            logger.info(f"Abrindo trade: {symbol} {direction} ${stake} {expiry}s")
+            check, trade_id = self.api.buy(stake, symbol, action, expiry_minutes)
             
-            entry_price = list(price.values())[0]['close']
-            
-            # Colocar ordem
-            status, order_id = self.api.buy(
-                amount,
-                iq_symbol,
-                iq_direction,
-                expiry_minutes
-            )
-            
-            if not status:
-                print(f"✗ Ordem rejeitada")
-                return None
-            
-            print(f"✓ Ordem aceita: ID {order_id}")
+            if not check:
+                raise RuntimeError(f"Falha ao abrir trade: {symbol} {direction}")
             
             # Criar objeto Trade
             trade = Trade(
-                id=str(order_id),
+                id=str(trade_id),
                 symbol=symbol,
-                direction=direction,
-                amount=amount,
-                entry_price=entry_price,
-                entry_time=datetime.now(),
+                direction=direction.upper(),
+                stake=stake,
+                payout=payout,
                 expiry=expiry,
-                status="open",
+                entry_time=datetime.now(),
+                entry_price=entry_price,
             )
+            
+            # Armazenar trade
+            self.trades[trade.id] = trade
+            
+            logger.info(f"✓ Trade aberto com sucesso! ID: {trade_id}")
             
             return trade
             
         except Exception as e:
-            print(f"✗ Erro ao colocar ordem: {e}")
-            return None
+            logger.error(f"Erro ao abrir trade: {e}")
+            raise
     
-    def check_trade_result(self, trade: Trade) -> Optional[str]:
+    def check_trade_result(self, trade: Trade) -> Trade:
         """Verifica o resultado de um trade.
         
         Args:
             trade: Trade a verificar.
         
         Returns:
-            "win", "loss" ou None se ainda não finalizou.
+            Trade atualizado com resultado.
         """
-        if not self.connected or not self.api:
-            return None
+        # Se já tem resultado, retornar
+        if trade.exit_time is not None:
+            return trade
+        
+        self._ensure_connected()
         
         try:
-            # Verificar se trade já expirou
-            elapsed = (datetime.now() - trade.entry_time).total_seconds()
-            if elapsed < trade.expiry:
-                return None  # Ainda não expirou
+            # Verificar resultado usando check_win_v3 (mais eficiente)
+            result_str = self.api.check_win_v3(int(trade.id))
             
-            # Obter resultado
-            result = self.api.check_win_v3(int(trade.id))
-            
-            if result is None:
-                return None  # Resultado ainda não disponível
-            
-            if result > 0:
-                return "win"
-            elif result < 0:
-                return "loss"
+            # Mapear resultado
+            if result_str == "win":
+                trade.result = "win"
+                trade.profit = trade.stake * trade.payout
+            elif result_str == "loose":  # API usa "loose" em vez de "loss"
+                trade.result = "loss"
+                trade.profit = 0.0
+            elif result_str == "equal":
+                trade.result = "tie"
+                trade.profit = trade.stake
             else:
-                return "draw"  # Empate (raro)
-                
+                # Trade ainda não finalizou
+                return trade
+            
+            # Obter preço de saída
+            trade.exit_price = self.get_current_price(trade.symbol)
+            trade.exit_time = datetime.now()
+            
+            logger.info(f"Trade {trade.id} finalizado: {trade.result} (${trade.profit:.2f})")
+            
         except Exception as e:
-            print(f"✗ Erro ao verificar resultado: {e}")
-            return None
-    
-    def get_balance(self) -> float:
-        """Obtém saldo atual.
+            logger.error(f"Erro ao verificar resultado do trade {trade.id}: {e}")
         
-        Returns:
-            Saldo disponível.
-        """
-        if not self.connected or not self.api:
-            return 0.0
-        
-        try:
-            balance = self.api.get_balance()
-            return float(balance)
-        except Exception as e:
-            print(f"✗ Erro ao obter saldo: {e}")
-            return 0.0
+        return trade
     
-    def get_payout(self, symbol: str) -> float:
-        """Obtém payout atual para um símbolo.
+    def is_market_open(self, symbol: str) -> bool:
+        """Verifica se o mercado está aberto.
         
         Args:
-            symbol: Símbolo do ativo.
+            symbol: Par de moedas.
         
         Returns:
-            Payout em decimal (ex: 0.85 para 85%).
+            True se mercado está aberto.
         """
-        if not self.connected or not self.api:
-            return 0.80  # Valor padrão
+        self._ensure_connected()
         
         try:
             # Obter informações do ativo
-            all_assets = self.api.get_all_open_time()
+            all_init = self.api.get_all_init()
             
-            if symbol in all_assets.get('binary', {}):
-                profit = all_assets['binary'][symbol].get('profit', 80)
-                return profit / 100.0
+            # Verificar se ativo está aberto
+            if "binary" in all_init and "actives" in all_init["binary"]:
+                actives = all_init["binary"]["actives"]
+                if symbol in actives:
+                    return actives[symbol]["enabled"]
             
-            return 0.80  # Valor padrão se não encontrar
+            # Fallback: tentar obter preço
+            self.get_current_price(symbol)
+            return True
             
-        except Exception as e:
-            print(f"✗ Erro ao obter payout: {e}")
-            return 0.80
+        except Exception:
+            return False
+    
+    def close(self) -> None:
+        """Fecha conexão com o broker."""
+        if self.api is not None:
+            logger.info("Fechando conexão com IQ Option...")
+            # A API não tem método close explícito
+            self.api = None
 
 
-class QuotexBroker(BaseBroker):
+class QuotexBroker(BrokerInterface):
     """Broker para Quotex (estrutura base - requer implementação)."""
     
     def __init__(self, email: str, password: str, demo: bool = True):
@@ -240,40 +291,38 @@ class QuotexBroker(BaseBroker):
         self.email = email
         self.password = password
         self.demo = demo
-        self.connected = False
         
-        print(f"Quotex Broker ({'DEMO' if demo else 'REAL'})")
-        print("⚠️  Implementação Quotex ainda não disponível")
-        print("Use IQOptionBroker ou implemente a integração Quotex")
-    
-    def connect(self) -> bool:
-        """Conecta ao broker."""
-        print("✗ Quotex não implementado ainda")
-        return False
-    
-    def disconnect(self) -> None:
-        """Desconecta do broker."""
-        pass
-    
-    def place_order(
-        self,
-        symbol: str,
-        direction: str,
-        amount: float,
-        expiry: int,
-    ) -> Optional[Trade]:
-        """Coloca uma ordem."""
-        print("✗ Quotex não implementado ainda")
-        return None
-    
-    def check_trade_result(self, trade: Trade) -> Optional[str]:
-        """Verifica resultado."""
-        return None
+        logger.warning("⚠️  Quotex Broker ainda não implementado")
+        logger.info("Use IQOptionBroker ou implemente a integração Quotex")
+        
+        raise NotImplementedError("Broker Quotex ainda não implementado")
     
     def get_balance(self) -> float:
         """Obtém saldo."""
         return 0.0
     
-    def get_payout(self, symbol: str) -> float:
+    def get_payout(self, symbol: str, expiry: int) -> float:
         """Obtém payout."""
         return 0.80
+    
+    def get_current_price(self, symbol: str) -> float:
+        """Obtém preço atual."""
+        return 0.0
+    
+    def place_trade(
+        self,
+        symbol: str,
+        direction: str,
+        stake: float,
+        expiry: int,
+    ) -> Trade:
+        """Coloca uma ordem."""
+        raise NotImplementedError("Quotex não implementado")
+    
+    def check_trade_result(self, trade: Trade) -> Trade:
+        """Verifica resultado."""
+        return trade
+    
+    def is_market_open(self, symbol: str) -> bool:
+        """Verifica se mercado está aberto."""
+        return False

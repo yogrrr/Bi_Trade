@@ -12,18 +12,24 @@ data:
 
 # Broker
 broker:
-  type: "mock"  # mock, iqoption, quotex
-  demo: true  # true=conta demo, false=conta real
-  email: ""  # Email da conta do broker
-  password: ""  # Senha (será solicitada de forma segura)
+  type: "iqoption"  # mock, iqoption, quotex
+  demo: false  # true=conta demo, false=conta real
+  email: "yohangreguer@icloud.com"  # Email da conta do broker
+  password: "Qazwsx1234#"  # Senha (será solicitada de forma segura)
 
 # Gestão de risco
 risk:
   risk_per_trade: 0.01  # 1% do saldo por trade
+  stake_percent: 0.01  # Alias para risk_per_trade (usado pela interface)
   daily_loss_limit: -2.0  # Parar ao perder 2R no dia
   daily_profit_target: 3.0  # Parar ao ganhar 3R no dia
   min_payout: 0.80  # Ignorar payouts abaixo de 80%
   safety_margin: 0.02  # Margem de segurança adicional sobre p_star
+  
+  # Martingale (gestão progressiva de risco)
+  martingale_enabled: false  # Ativar sistema Martingale
+  martingale_multiplier: 1.5  # Multiplicador após perda (ex: 1.5x)
+  martingale_max_steps: 3  # Número máximo de steps (perdas consecutivas)
 
 # Estratégias
 strategies:
@@ -49,6 +55,8 @@ model:
   type: "river"  # river ou sklearn
   update_online: true
   calibration: "isotonic"  # isotonic, platt ou null
+  min_prob: 0.55  # Probabilidade mínima para operar (0-1)
+  safety_margin: 0.02  # Margem de segurança adicional
 
 # Bandit contextual (opcional)
 bandit:

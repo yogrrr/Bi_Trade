@@ -19,6 +19,13 @@ class RiskManager:
         self.min_payout = config["risk"]["min_payout"]
         self.safety_margin = config["risk"]["safety_margin"]
         
+        # Martingale
+        self.martingale_enabled = config["risk"].get("martingale_enabled", False)
+        self.martingale_multiplier = config["risk"].get("martingale_multiplier", 1.5)
+        self.martingale_max_steps = config["risk"].get("martingale_max_steps", 3)
+        self.martingale_step = 0
+        self.consecutive_losses = 0
+        
         # Estado diário
         self.daily_pnl = 0.0
         self.daily_trades = 0
@@ -32,7 +39,14 @@ class RiskManager:
         Returns:
             Tamanho da aposta.
         """
-        return balance * self.risk_per_trade
+        base_stake = balance * self.risk_per_trade
+        
+        # Aplicar martingale se habilitado
+        if self.martingale_enabled and self.martingale_step > 0:
+            multiplier = self.martingale_multiplier ** self.martingale_step
+            return base_stake * multiplier
+        
+        return base_stake
     
     def should_trade(
         self,
@@ -85,11 +99,23 @@ class RiskManager:
         """
         self.daily_pnl += pnl
         self.daily_trades += 1
+        
+        # Atualizar estado do martingale
+        if self.martingale_enabled:
+            if pnl < 0:  # Loss
+                self.consecutive_losses += 1
+                if self.martingale_step < self.martingale_max_steps:
+                    self.martingale_step += 1
+            else:  # Win
+                self.consecutive_losses = 0
+                self.martingale_step = 0  # Reset martingale após win
     
     def reset_daily_stats(self) -> None:
         """Reseta as estatísticas diárias."""
         self.daily_pnl = 0.0
         self.daily_trades = 0
+        self.martingale_step = 0
+        self.consecutive_losses = 0
     
     def get_daily_stats(self) -> dict[str, Any]:
         """Retorna estatísticas diárias.
@@ -100,6 +126,8 @@ class RiskManager:
         return {
             "daily_pnl": self.daily_pnl,
             "daily_trades": self.daily_trades,
+            "martingale_step": self.martingale_step,
+            "consecutive_losses": self.consecutive_losses,
         }
     
     def calculate_expectancy(self, p_win: float, payout: float) -> float:
