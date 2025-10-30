@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -91,9 +90,12 @@ async def update_config(update: ConfigUpdate) -> dict[str, str]:
     try:
         import yaml
 
-        # Carregar configuração atual para preservar chaves existentes
-        current_config = Config()._config
-        merged_config = deepcopy(current_config)
+        config_path = Path("config.yaml")
+        if config_path.exists():
+            with config_path.open("r", encoding="utf-8") as f:
+                current_config: dict[str, Any] = yaml.safe_load(f) or {}
+        else:
+            current_config = {}
 
         def deep_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
             for key, value in overrides.items():
@@ -103,7 +105,7 @@ async def update_config(update: ConfigUpdate) -> dict[str, str]:
                     base[key] = value
             return base
 
-        merged_config = deep_merge(merged_config, update.config)
+        merged_config = deep_merge(dict(current_config), update.config)
 
         # Manter aliases stake_percent/risk_per_trade sincronizados
         risk_override = update.config.get("risk") if isinstance(update.config, dict) else None
@@ -116,7 +118,7 @@ async def update_config(update: ConfigUpdate) -> dict[str, str]:
 
         synchronize_risk_aliases(merged_config, prefer=prefer)
 
-        with open("config.yaml", "w", encoding="utf-8") as f:
+        with config_path.open("w", encoding="utf-8") as f:
             yaml.dump(merged_config, f, default_flow_style=False, allow_unicode=True)
 
         return {"message": "Configuração atualizada com sucesso"}
