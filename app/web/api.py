@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -14,7 +15,7 @@ from pydantic import BaseModel
 
 from app.backtest.engine import BacktestEngine
 from app.backtest.report import ReportGenerator
-from app.config import Config
+from app.config import Config, synchronize_risk_aliases
 from app.data.loaders import SyntheticDataLoader
 from app.features.ta_features import TechnicalFeatures
 from app.live.runner import create_live_runner
@@ -88,12 +89,36 @@ async def get_config() -> dict[str, Any]:
 async def update_config(update: ConfigUpdate) -> dict[str, str]:
     """Atualiza a configuração."""
     try:
-        # Salvar configuração atualizada
         import yaml
-        
+
+        # Carregar configuração atual para preservar chaves existentes
+        current_config = Config()._config
+        merged_config = deepcopy(current_config)
+
+        def deep_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
+            for key, value in overrides.items():
+                if isinstance(value, dict) and isinstance(base.get(key), dict):
+                    base[key] = deep_merge(base[key], value)
+                else:
+                    base[key] = value
+            return base
+
+        merged_config = deep_merge(merged_config, update.config)
+
+        # Manter aliases stake_percent/risk_per_trade sincronizados
+        risk_override = update.config.get("risk") if isinstance(update.config, dict) else None
+        prefer: str | None = None
+        if isinstance(risk_override, dict):
+            if "stake_percent" in risk_override:
+                prefer = "stake_percent"
+            elif "risk_per_trade" in risk_override:
+                prefer = "risk_per_trade"
+
+        synchronize_risk_aliases(merged_config, prefer=prefer)
+
         with open("config.yaml", "w", encoding="utf-8") as f:
-            yaml.dump(update.config, f, default_flow_style=False, allow_unicode=True)
-        
+            yaml.dump(merged_config, f, default_flow_style=False, allow_unicode=True)
+
         return {"message": "Configuração atualizada com sucesso"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

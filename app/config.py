@@ -2,7 +2,54 @@
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+
+
+def synchronize_risk_aliases(
+    config_data: dict[str, Any],
+    prefer: Literal["stake_percent", "risk_per_trade", None] = None,
+) -> None:
+    """Mantém os aliases de risco em sincronia.
+
+    A interface utiliza ``stake_percent`` como representação em percentual
+    enquanto os componentes internos utilizam ``risk_per_trade``. Esta função
+    garante que ambos os valores permaneçam iguais independentemente de qual
+    foi alterado.
+
+    Args:
+        config_data: Dicionário completo de configuração.
+        prefer: Campo que deve prevalecer caso ambos existam com valores
+            diferentes. Quando ``None`` é utilizado, ``stake_percent`` tem
+            prioridade por representar o valor exibido na interface.
+    """
+
+    risk_config = config_data.get("risk")
+    if not isinstance(risk_config, dict):
+        return
+
+    stake_percent = risk_config.get("stake_percent")
+    risk_per_trade = risk_config.get("risk_per_trade")
+
+    if prefer == "stake_percent" and stake_percent is not None:
+        risk_config["risk_per_trade"] = stake_percent
+    elif prefer == "risk_per_trade" and risk_per_trade is not None:
+        risk_config["stake_percent"] = risk_per_trade
+    else:
+        if stake_percent is None and risk_per_trade is not None:
+            risk_config["stake_percent"] = risk_per_trade
+            stake_percent = risk_per_trade
+        elif risk_per_trade is None and stake_percent is not None:
+            risk_config["risk_per_trade"] = stake_percent
+            risk_per_trade = stake_percent
+
+        if (
+            stake_percent is not None
+            and risk_per_trade is not None
+            and stake_percent != risk_per_trade
+        ):
+            # Priorizar o valor exibido na interface para manter consistência visual
+            risk_config["risk_per_trade"] = stake_percent
+            risk_config["stake_percent"] = stake_percent
 
 import yaml
 from dotenv import load_dotenv
@@ -27,6 +74,9 @@ class Config:
         
         with open(config_file, "r", encoding="utf-8") as f:
             self._config: dict[str, Any] = yaml.safe_load(f)
+
+        # Garantir que aliases permaneçam sincronizados
+        synchronize_risk_aliases(self._config)
     
     def get(self, key: str, default: Any = None) -> Any:
         """Obtém um valor de configuração.
