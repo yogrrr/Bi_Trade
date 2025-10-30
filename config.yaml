@@ -21,8 +21,8 @@ broker:
 risk:
   risk_per_trade: 0.01  # 1% do saldo por trade
   stake_percent: 0.01  # Alias para risk_per_trade (usado pela interface)
-  daily_loss_limit: -0.02  # Parar ao perder 2% do saldo no dia
-  daily_profit_target: 0.03  # Parar ao ganhar 3% do saldo no dia
+  daily_loss_limit: -2  # Aceita -2 (=> -2%) ou -0.02 para parada de perda diária
+  daily_profit_target: 3  # Aceita 3 (=> +3%) ou 0.03 para meta diária de lucro
   min_payout: 0.80  # Ignorar payouts abaixo de 80%
   safety_margin: 0.02  # Margem de segurança adicional sobre p_star
   

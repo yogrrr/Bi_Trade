@@ -13,8 +13,9 @@ Robô de trading de **opções binárias** com **IA** e **aprendizado online**. 
 - **Bandit Contextual**: Seleciona automaticamente a melhor estratégia por contexto
 - **Gestão de Risco Rigorosa**:
   - Stake fixo de 0,5-1% do saldo (sem martingale!)
-  - Stop loss diário: -2%
-  - Take profit diário: +3%
+  - Limites diários em percentual (compatível com valores antigos em R):
+    - Stop loss diário: -2% (insira -2 ou -0.02)
+    - Take profit diário: +3% (insira 3 ou 0.03)
   - Ignora payouts < 80%
 - **Backtest Completo**: Walk-forward com payout variável, latência e slippage simulados
 - **Modo Live/Demo**: Paper trading com broker mock incluso
@@ -120,8 +121,8 @@ expiry: 120  # segundos
 # Gestão de risco
 risk:
   risk_per_trade: 0.01  # 1% do saldo por trade
-  daily_loss_limit: -0.02  # Parar ao perder 2% do saldo
-  daily_profit_target: 0.03  # Parar ao ganhar 3% do saldo
+  daily_loss_limit: -2  # Aceita -2 (=> -2%) ou -0.02
+  daily_profit_target: 3  # Aceita 3 (=> +3%) ou 0.03
   min_payout: 0.80  # Ignorar payouts < 80%
   safety_margin: 0.02  # Margem adicional sobre breakeven
 
