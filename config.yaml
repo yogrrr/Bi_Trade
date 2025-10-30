@@ -5,6 +5,18 @@ symbol: "EURUSD"
 timeframe: "1m"  # 1m, 5m, 15m, etc.
 expiry: 120  # segundos
 
+# Fonte de dados
+data:
+  source: "synthetic"  # synthetic, yfinance, alphavantage
+  alphavantage_api_key: ""  # Necessário se source=alphavantage
+
+# Broker
+broker:
+  type: "mock"  # mock, iqoption, quotex
+  demo: true  # true=conta demo, false=conta real
+  email: ""  # Email da conta do broker
+  password: ""  # Senha (será solicitada de forma segura)
+
 # Gestão de risco
 risk:
   risk_per_trade: 0.01  # 1% do saldo por trade
