@@ -7,9 +7,11 @@ import numpy as np
 try:
     from river import linear_model, preprocessing
     RIVER_AVAILABLE = True
-except ImportError:
+except ImportError:  # pragma: no cover - depende de instalação opcional
+    linear_model = None  # type: ignore[assignment]
+    preprocessing = None  # type: ignore[assignment]
     RIVER_AVAILABLE = False
-    
+
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.linear_model import SGDClassifier
 
@@ -39,54 +41,94 @@ class OnlineModel:
 
 
 class RiverModel(OnlineModel):
-    """Modelo de aprendizado online usando River."""
-    
+    """Modelo de aprendizado online usando River.
+
+    Quando a biblioteca ``river`` não está disponível (como em ambientes de
+    deploy minimalistas), o modelo cai automaticamente para uma implementação
+    compatível baseada em scikit-learn, preservando a interface pública e o
+    comportamento esperado nos testes.
+    """
+
     def __init__(self, calibration: Optional[str] = None) -> None:
         """Inicializa o modelo River.
-        
+
         Args:
             calibration: Tipo de calibração ('isotonic', 'platt' ou None).
         """
-        self.scaler = preprocessing.StandardScaler()
-        self.model = linear_model.LogisticRegression()
+
         self.calibration = calibration
         self.n_samples = 0
-    
+        self.is_fitted = False
+
+        if RIVER_AVAILABLE:
+            self.scaler = preprocessing.StandardScaler()
+            self.model = linear_model.LogisticRegression()
+        else:
+            # Fallback leve usando scikit-learn para ambientes sem river.
+            self.model = SGDClassifier(
+                loss="log_loss",
+                penalty="l2",
+                alpha=0.0001,
+                max_iter=1,
+                warm_start=True,
+                random_state=42,
+            )
+            self.scaler = None
+
     def predict_proba(self, X: np.ndarray) -> float:
         """Prediz a probabilidade de vitória.
-        
+
         Args:
             X: Vetor de features.
-        
+
         Returns:
             Probabilidade de vitória (0-1).
         """
+        if not RIVER_AVAILABLE:
+            if not self.is_fitted:
+                return 0.5
+            X_reshaped = X.reshape(1, -1)
+            proba = self.model.predict_proba(X_reshaped)[0, 1]
+            return float(proba)
+
         # Converter para dict (formato do River)
         x_dict = {f"f{i}": float(v) for i, v in enumerate(X)}
-        
+
         # Escalar
         x_scaled = self.scaler.transform_one(x_dict)
-        
+
         # Predizer
         proba = self.model.predict_proba_one(x_scaled)
-        
+
         # Retornar probabilidade da classe positiva (1)
         return proba.get(1, 0.5)
-    
+
     def update(self, X: np.ndarray, y: int) -> None:
         """Atualiza o modelo com um novo exemplo.
-        
+
         Args:
             X: Vetor de features.
             y: Label (1 para vitória, 0 para derrota).
         """
+        if not RIVER_AVAILABLE:
+            X_reshaped = X.reshape(1, -1)
+
+            if not self.is_fitted:
+                self.model.partial_fit(X_reshaped, np.array([y]), classes=[0, 1])
+                self.is_fitted = True
+            else:
+                self.model.partial_fit(X_reshaped, np.array([y]))
+
+            self.n_samples += 1
+            return
+
         # Converter para dict
         x_dict = {f"f{i}": float(v) for i, v in enumerate(X)}
-        
+
         # Escalar (learn_one retorna None, então precisamos chamar separadamente)
         self.scaler.learn_one(x_dict)
         x_scaled = self.scaler.transform_one(x_dict)
-        
+
         # Atualizar modelo
         self.model.learn_one(x_scaled, y)
         self.n_samples += 1
@@ -168,8 +210,7 @@ def create_model(model_type: str = "sklearn", calibration: Optional[str] = None)
     """
     if model_type == "river":
         if not RIVER_AVAILABLE:
-            print("⚠️  River não disponível, usando sklearn")
-            return SklearnModel(calibration=calibration)
+            print("⚠️  River não disponível, usando fallback sklearn")
         return RiverModel(calibration=calibration)
     elif model_type == "sklearn":
         return SklearnModel(calibration=calibration)
