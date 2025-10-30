@@ -77,8 +77,9 @@ class RiverModel(OnlineModel):
         # Converter para dict
         x_dict = {f"f{i}": float(v) for i, v in enumerate(X)}
         
-        # Escalar
-        x_scaled = self.scaler.learn_one(x_dict).transform_one(x_dict)
+        # Escalar (learn_one retorna None, então precisamos chamar separadamente)
+        self.scaler.learn_one(x_dict)
+        x_scaled = self.scaler.transform_one(x_dict)
         
         # Atualizar modelo
         self.model.learn_one(x_scaled, y)

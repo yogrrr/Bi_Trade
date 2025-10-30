@@ -72,6 +72,9 @@ class BacktestEngine:
         """
         print(f"Iniciando backtest com {len(df)} barras...")
         
+        # Pré-treinar modelo com dados iniciais
+        self._pretrain_model(df)
+        
         for idx in range(len(df)):
             row = df.iloc[idx]
             
@@ -275,3 +278,55 @@ class BacktestEngine:
         }
         
         return metrics
+    
+    def _pretrain_model(self, df: pd.DataFrame) -> None:
+        """Pré-treina o modelo com dados históricos.
+        
+        Usa os primeiros 10% dos dados para treinar o modelo antes
+        de iniciar o backtest, dando ao modelo um ponto de partida
+        mais realista do que probabilidades neutras (0.5).
+        
+        Args:
+            df: DataFrame com dados de mercado e features.
+        """
+        # Usar 10% dos dados para pré-treinamento (mínimo 50 barras)
+        pretrain_size = max(50, int(len(df) * 0.1))
+        pretrain_df = df.iloc[:pretrain_size]
+        
+        print(f"Pré-treinando modelo com {pretrain_size} barras...")
+        
+        for idx in range(len(pretrain_df)):
+            row = pretrain_df.iloc[idx]
+            
+            # Gerar sinais
+            signals = []
+            for strategy in self.strategies:
+                signal = strategy.generate_signal(pretrain_df, idx)
+                if signal is not None:
+                    signals.append((strategy.get_name(), signal))
+            
+            if not signals:
+                continue
+            
+            # Extrair features
+            features = TechnicalFeatures.extract_feature_vector(row, self.config)
+            
+            # Simular resultado (baseado em dados reais)
+            signal = signals[0][1]
+            
+            # Usar próxima barra para determinar resultado real
+            if idx + 1 < len(pretrain_df):
+                entry_price = row["close"]
+                exit_price = pretrain_df.iloc[idx + 1]["close"]
+                
+                if signal == "CALL":
+                    win = exit_price > entry_price
+                else:  # PUT
+                    win = exit_price < entry_price
+                
+                # Treinar modelo com resultado real
+                y = 1 if win else 0
+                self.model.update(features, y)
+        
+        print(f"Pré-treinamento concluído. Modelo pronto para backtest.")
+        print(f"Probabilidade inicial estimada: {self.model.predict_proba(features):.4f}")
