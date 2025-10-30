@@ -1,0 +1,84 @@
+# Configuração do Robô de Trading
+
+# Símbolo e timeframe
+symbol: "EURUSD"
+timeframe: "1m"  # 1m, 5m, 15m, etc.
+expiry: 120  # segundos
+
+# Fonte de dados
+data:
+  source: "synthetic"  # synthetic, yfinance, alphavantage
+  alphavantage_api_key: ""  # Necessário se source=alphavantage
+
+# Broker
+broker:
+  type: "iqoption"  # mock, iqoption, quotex
+  demo: false  # true=conta demo, false=conta real
+  email: "yohangreguer@icloud.com"  # Email da conta do broker
+  password: "Qazwsx1234#"  # Senha (será solicitada de forma segura)
+
+# Gestão de risco
+risk:
+  risk_per_trade: 0.01  # 1% do saldo por trade
+  stake_percent: 0.01  # Alias para risk_per_trade (usado pela interface)
+  daily_loss_limit: -2.0  # Parar ao perder 2R no dia
+  daily_profit_target: 3.0  # Parar ao ganhar 3R no dia
+  min_payout: 0.80  # Ignorar payouts abaixo de 80%
+  safety_margin: 0.02  # Margem de segurança adicional sobre p_star
+  
+  # Martingale (gestão progressiva de risco)
+  martingale_enabled: false  # Ativar sistema Martingale
+  martingale_multiplier: 1.5  # Multiplicador após perda (ex: 1.5x)
+  martingale_max_steps: 3  # Número máximo de steps (perdas consecutivas)
+
+# Estratégias
+strategies:
+  trend:
+    enabled: true
+    ema_fast: 9
+    ema_slow: 21
+    atr_period: 14
+    atr_multiplier: 1.5
+  
+  meanrev:
+    enabled: true
+    rsi_period: 2
+    rsi_oversold: 5
+    rsi_overbought: 95
+  
+  breakout:
+    enabled: true
+    donchian_period: 20
+
+# Modelo de IA
+model:
+  type: "river"  # river ou sklearn
+  update_online: true
+  calibration: "isotonic"  # isotonic, platt ou null
+  min_prob: 0.55  # Probabilidade mínima para operar (0-1)
+  safety_margin: 0.02  # Margem de segurança adicional
+
+# Bandit contextual (opcional)
+bandit:
+  enabled: true
+  epsilon: 0.1  # Exploração vs exploitação
+
+# Backtest
+backtest:
+  start_date: "2024-01-01"
+  end_date: "2024-12-31"
+  initial_balance: 1000.0
+  latency_ms: 100  # Latência simulada
+  slippage: 0.0
+
+# Live/Demo
+live:
+  initial_balance: 1000.0
+  max_concurrent_trades: 1
+  check_interval: 1  # segundos
+
+# Logs
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  format: "json"  # json ou text
+  file: "logs/trading.log"
