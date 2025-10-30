@@ -3,7 +3,13 @@
 from typing import Any, Optional
 
 import numpy as np
-from river import linear_model, preprocessing
+# River removido para compatibilidade com Render
+try:
+    from river import linear_model, preprocessing
+    RIVER_AVAILABLE = True
+except ImportError:
+    RIVER_AVAILABLE = False
+    
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.linear_model import SGDClassifier
 
@@ -150,7 +156,7 @@ class SklearnModel(OnlineModel):
         self.n_samples += 1
 
 
-def create_model(model_type: str = "river", calibration: Optional[str] = None) -> OnlineModel:
+def create_model(model_type: str = "sklearn", calibration: Optional[str] = None) -> OnlineModel:
     """Cria um modelo de aprendizado online.
     
     Args:
@@ -161,6 +167,9 @@ def create_model(model_type: str = "river", calibration: Optional[str] = None) -
         Instância do modelo.
     """
     if model_type == "river":
+        if not RIVER_AVAILABLE:
+            print("⚠️  River não disponível, usando sklearn")
+            return SklearnModel(calibration=calibration)
         return RiverModel(calibration=calibration)
     elif model_type == "sklearn":
         return SklearnModel(calibration=calibration)

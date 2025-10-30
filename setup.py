@@ -10,7 +10,7 @@ setup(
         "numpy>=1.26.0",
         "pandas>=2.1.0",
         "scikit-learn>=1.3.0",
-        "river>=0.18.0,<0.21.0",  # Versão compatível com Python 3.11
+        # River removido para compatibilidade com Render
         "pyyaml>=6.0",
         "python-dotenv>=1.0.0",
         "click>=8.1.0",
