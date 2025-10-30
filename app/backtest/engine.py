@@ -58,6 +58,7 @@ class BacktestEngine:
         # Estado
         self.balance = self.initial_balance
         self.trades: list[dict[str, Any]] = []
+        self.opportunities: list[dict[str, Any]] = []  # Todas as oportunidades analisadas
         self.equity_curve: list[float] = [self.initial_balance]
     
     def run(self, df: pd.DataFrame) -> dict[str, Any]:
@@ -119,6 +120,19 @@ class BacktestEngine:
             
             # Verificar se deve operar
             should_trade, reason = self.risk_manager.should_trade(p_win, payout, self.balance)
+            
+            # Registrar oportunidade (executada ou rejeitada)
+            opportunity = {
+                "timestamp": row["timestamp"],
+                "strategy": selected_strategy,
+                "signal": signal,
+                "p_win": p_win,
+                "payout": payout,
+                "should_trade": should_trade,
+                "reason": reason,
+                "balance": self.balance,
+            }
+            self.opportunities.append(opportunity)
             
             if not should_trade:
                 self.equity_curve.append(self.balance)
@@ -186,6 +200,7 @@ class BacktestEngine:
         
         return {
             "trades": self.trades,
+            "opportunities": self.opportunities,
             "equity_curve": self.equity_curve,
             "metrics": metrics,
         }
