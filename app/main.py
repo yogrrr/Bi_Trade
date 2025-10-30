@@ -8,13 +8,14 @@ from app.config import Config
 from app.data.loaders import SyntheticDataLoader
 from app.features.ta_features import TechnicalFeatures
 from app.live.runner import create_live_runner
+from app.utils.git_sync import ensure_repo_is_up_to_date
 from app.utils.logging import setup_logging
 
 
 @click.group()
 def cli() -> None:
     """Binary Trading Bot - Robô de trading de opções binárias com IA."""
-    pass
+    ensure_repo_is_up_to_date(echo=click.echo)
 
 
 @cli.command()

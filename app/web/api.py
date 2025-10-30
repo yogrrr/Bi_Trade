@@ -4,7 +4,7 @@ import asyncio
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from app.backtest.engine import BacktestEngine
 from app.backtest.report import ReportGenerator
-from app.config import Config
+from app.config import Config, apply_config_overrides
 from app.data.loaders import SyntheticDataLoader
 from app.features.ta_features import TechnicalFeatures
 from app.live.runner import create_live_runner
@@ -47,6 +47,7 @@ class BacktestRequest(BaseModel):
     expiry: int = 120
     start_date: str = "2024-01-01"
     end_date: str = "2024-12-31"
+    config_overrides: dict[str, Any] | None = None
 
 
 class LiveRequest(BaseModel):
@@ -88,12 +89,22 @@ async def get_config() -> dict[str, Any]:
 async def update_config(update: ConfigUpdate) -> dict[str, str]:
     """Atualiza a configuração."""
     try:
-        # Salvar configuração atualizada
         import yaml
-        
-        with open("config.yaml", "w", encoding="utf-8") as f:
-            yaml.dump(update.config, f, default_flow_style=False, allow_unicode=True)
-        
+
+        config_path = Path("config.yaml")
+        if config_path.exists():
+            with config_path.open("r", encoding="utf-8") as f:
+                loaded = yaml.safe_load(f) or {}
+        else:
+            loaded = {}
+
+        current_config = cast(dict[str, Any], loaded)
+
+        merged_config = apply_config_overrides(current_config, update.config)
+
+        with config_path.open("w", encoding="utf-8") as f:
+            yaml.dump(merged_config, f, default_flow_style=False, allow_unicode=True)
+
         return {"message": "Configuração atualizada com sucesso"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -112,7 +123,13 @@ async def run_backtest(request: BacktestRequest) -> dict[str, Any]:
         config._config["expiry"] = request.expiry
         config._config["backtest"]["start_date"] = request.start_date
         config._config["backtest"]["end_date"] = request.end_date
-        
+
+        if request.config_overrides:
+            config._config = apply_config_overrides(
+                config._config,
+                request.config_overrides,
+            )
+
         # Carregar dados
         loader = SyntheticDataLoader()
         df = loader.load(
@@ -227,6 +244,7 @@ async def live_status() -> dict[str, Any]:
             "balance": balance,
             "active_trades": len(live_runner.active_trades),
             "daily_pnl": stats["daily_pnl"],
+            "daily_pnl_percent": stats["daily_pnl_percent"],
             "daily_trades": stats["daily_trades"],
         }
     
@@ -284,6 +302,7 @@ async def websocket_live(websocket: WebSocket) -> None:
                     "balance": balance,
                     "active_trades": len(live_runner.active_trades),
                     "daily_pnl": stats["daily_pnl"],
+                    "daily_pnl_percent": stats["daily_pnl_percent"],
                     "daily_trades": stats["daily_trades"],
                 }
                 

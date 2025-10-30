@@ -163,7 +163,11 @@ class LiveRunner:
         balance = self.broker.get_balance()
         
         self.logger.info(f"Saldo final: ${balance:.2f}")
-        self.logger.info(f"PnL diário: {stats['daily_pnl']:.2f}R")
+        self.logger.info(
+            "PnL diário: %.2fR (%.2f%%)",
+            stats["daily_pnl"],
+            stats["daily_pnl_percent"] * 100,
+        )
         self.logger.info(f"Trades diários: {stats['daily_trades']}")
     
     def _update_historical_data(self) -> None:

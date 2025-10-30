@@ -11,8 +11,8 @@ def config():
     return {
         "risk": {
             "risk_per_trade": 0.01,
-            "daily_loss_limit": -2.0,
-            "daily_profit_target": 3.0,
+            "daily_loss_limit": -0.02,
+            "daily_profit_target": 0.03,
             "min_payout": 0.80,
             "safety_margin": 0.02,
         }
@@ -117,6 +117,17 @@ def test_reset_daily_stats(risk_manager):
     """Testa reset de estatísticas diárias."""
     risk_manager.update_daily_pnl(2.0)
     risk_manager.reset_daily_stats()
-    
+
     assert risk_manager.daily_pnl == 0.0
     assert risk_manager.daily_trades == 0
+
+
+def test_percent_normalization_from_integers(config):
+    """Garante compatibilidade com valores antigos (inteiros)."""
+    config["risk"]["daily_loss_limit"] = -2.0
+    config["risk"]["daily_profit_target"] = 3.0
+
+    manager = RiskManager(config)
+
+    assert manager.daily_loss_limit_percent == pytest.approx(-0.02)
+    assert manager.daily_profit_target_percent == pytest.approx(0.03)

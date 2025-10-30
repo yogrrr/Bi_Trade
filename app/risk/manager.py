@@ -14,8 +14,12 @@ class RiskManager:
         """
         self.config = config
         self.risk_per_trade = config["risk"]["risk_per_trade"]
-        self.daily_loss_limit = config["risk"]["daily_loss_limit"]
-        self.daily_profit_target = config["risk"]["daily_profit_target"]
+        self.daily_loss_limit_percent = self._normalize_percent(
+            config["risk"].get("daily_loss_limit", -0.02)
+        )
+        self.daily_profit_target_percent = self._normalize_percent(
+            config["risk"].get("daily_profit_target", 0.03)
+        )
         self.min_payout = config["risk"]["min_payout"]
         self.safety_margin = config["risk"]["safety_margin"]
         
@@ -76,13 +80,20 @@ class RiskManager:
         if p_win <= threshold:
             return False, f"P(win) {p_win:.2%} <= threshold {threshold:.2%}"
         
-        # Verificar limite de perda diária
-        if self.daily_pnl <= self.daily_loss_limit:
-            return False, f"Limite de perda diária atingido: {self.daily_pnl:.2f}R"
-        
-        # Verificar meta de lucro diária
-        if self.daily_pnl >= self.daily_profit_target:
-            return False, f"Meta de lucro diária atingida: {self.daily_pnl:.2f}R"
+        # Verificar limites percentuais diários
+        daily_return = self.daily_pnl * self.risk_per_trade
+
+        if daily_return <= self.daily_loss_limit_percent:
+            return False, (
+                "Limite de perda diária atingido: "
+                f"{daily_return:.2%} <= {self.daily_loss_limit_percent:.2%}"
+            )
+
+        if daily_return >= self.daily_profit_target_percent:
+            return False, (
+                "Meta de lucro diária atingida: "
+                f"{daily_return:.2%} >= {self.daily_profit_target_percent:.2%}"
+            )
         
         # Verificar saldo mínimo
         stake = self.calculate_stake(balance)
@@ -125,10 +136,28 @@ class RiskManager:
         """
         return {
             "daily_pnl": self.daily_pnl,
+            "daily_pnl_percent": self.daily_pnl * self.risk_per_trade,
             "daily_trades": self.daily_trades,
             "martingale_step": self.martingale_step,
             "consecutive_losses": self.consecutive_losses,
         }
+
+    @staticmethod
+    def _normalize_percent(value: float) -> float:
+        """Normaliza valores percentuais recebidos da configuração."""
+
+        if value is None:
+            return 0.0
+
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+
+        if abs(numeric) > 1:
+            return numeric / 100.0
+
+        return numeric
     
     def calculate_expectancy(self, p_win: float, payout: float) -> float:
         """Calcula a expectância matemática do trade.
